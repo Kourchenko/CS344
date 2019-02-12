@@ -1,0 +1,350 @@
+#!/bin/bash
+tmpFileOne="tmpFileOne$$"
+tmpFileTwo="tmpFileTwo$$"
+tmpFinalRow="tmpFinalRow$$"
+tmpMultOne="tmpMultOne$$"
+tmpMultTwo="tmpMultTwo$$"
+tmpFile="tmpFile$$"
+tmpRow="tmprowfile$$"
+tmpCol="tmpcolfile$$"
+
+#################
+# Dimensions
+#################
+dims() {
+    # Invalid file passed
+    if [[ ! -f $tmpFileOne ]]; then
+        echo "No such file" 1>&2
+        exit 1
+    else
+        # Read number of rows
+        while read row; do
+            nRows=$((nRows+1))
+            for i in $row; do
+                nCols=$((nCols+1))
+            done
+        done < $tmpFileOne
+        # number of columns is how many rows we iterated over
+        nCols=$((nCols/nRows))
+        printf "$nRows $nCols\n"
+
+        # Cleanup
+        rm -rf $tmpFileOne
+    fi
+}
+
+
+#################
+# Transpose
+#################
+transpose() {
+    # Invalid file passed
+	if [[ ! -f $tmpFileOne ]]; then
+		echo "No such file" 1>&2
+		exit 1
+	else
+        # Get dimensions of file
+        while read row; do
+            nRows=$((nRows+1))
+            for i in $row; do
+                nCols=$((nCols+1))
+            done
+        done < $tmpFileOne
+        nCols=$((nCols/nRows))
+
+		# Convert columns, into rows via cut -f column
+		touch $tmpFile
+		for i in $(seq 1 $nCols); do
+            # Cut the ith column of the file
+            cut -f $i $tmpFileOne > $tmpCol
+            # Append to new file by separating each new line into TABS
+            cat $tmpCol | tr -s '\n' '\t' > "$tmpRow"
+            rev "$tmpRow" >"tmpReversedRow"
+            # Remove the trailing tab
+            cat "tmpReversedRow" | cut -c 2-  >"tmpFinalRow"
+            rev "tmpFinalRow">$tmpRow
+            # STDOUT the final row
+            cat $tmpRow
+		done
+
+		# Cleanup temp files
+		rm -f tmp*
+	fi
+}
+
+#################
+# Mean
+#################
+mean() {
+	if [[ ! -f $tmpFileOne ]]; then
+		echo "No such file" 1>&2
+		exit 1
+	else
+		nRows=0
+		total=0
+
+        # Get number of rows and columns
+        while read row; do
+            nRows=$((nRows+1))
+            for i in $row; do
+                nCols=$((nCols+1))
+            done
+        done < $tmpFileOne
+        nCols=$((nCols/nRows))
+
+		touch $tmpFile
+        # Read each column and append to temp row file
+		for i in $(seq 1 $nCols); do
+			cut -f $i $tmpFileOne >> $tmpFile
+		done
+		counter=1
+		resetAt=0
+		sum=0
+		touch $tmpRow
+
+        # Add each line in column to find the average
+		while read row; do
+			if [ $resetAt -eq $nRows ]; then
+                # Provided average function
+				average=$(((sum + (nRows/2)*( (sum>0)*2-1 )) / nRows))
+				printf "$average\t" >> $tmpRow
+				sum=0
+				resetAt=1
+				sum=$((sum+row))
+			else
+				sum=$((sum+row))
+				resetAt=$((resetAt+1))
+			fi
+		done < $tmpFile
+		average=$(((sum + (nRows/2)*( (sum>0)*2-1 )) / nRows))
+		printf "$average" >> $tmpRow
+		echo >> $tmpRow
+		cat $tmpRow>&1
+		# Cleanup temp files
+		rm -f tmp*
+	fi
+}
+
+#################
+# Add
+#################
+add() {
+	if [ ! -f $tmpFileOne ]; then
+		echo "No such file for first argument..." 1>&2
+		exit 1
+	elif [ ! -f $tmpFileTwo ]; then
+		echo "No such file for second argument..." 1>&2
+		exit 1
+	else
+
+        # Get number of rows and columns for file one
+        while read row; do
+            m1_dims_rows=$((m1_dims_rows+1))
+            for i in $row; do
+                m1_dims_cols=$((m1_dims_cols+1))
+            done
+        done < $tmpFileOne
+        m1_dims_cols=$((m1_dims_cols/m1_dims_rows))
+
+        # Get number of rows and columns for file two
+        while read row; do
+            m2_dims_rows=$((m2_dims_rows+1))
+            for i in $row; do
+                m2_dims_cols=$((m2_dims_cols+1))
+            done
+        done < $tmpFileTwo
+        m2_dims_cols=$((m2_dims_cols/m2_dims_rows))
+
+        # Verify that they're exact equal dimensions
+		if [[ $m1_dims_rows -ne $m2_dims_rows ]]; then
+			echo "Invalid dimensions, cannot add" 1>&2
+		elif [[ $m1_dims_cols -ne $m2_dims_cols ]]; then
+			echo $"Invalid dimensions, cannot add" 1>&2
+		else
+			tmpFile1="tmpFile1_$$"
+			tmpFile2="tmpFile2_$$"
+
+			# Cut each column of first file and transform into tmpRowFiles
+			touch $tmpFile1
+			for i in $(seq 1 $m1_dims_cols); do
+				cut -f $i $tmpFileOne >> $tmpFile1
+			done
+
+            # Cut each column of second file and transform into tmpRowFiles
+			touch $tmpFile2
+			for i in $(seq 1 $m2_dims_cols); do
+				cut -f $i $tmpFileTwo >> $tmpFile2
+			done
+
+			touch $tmpFile
+			newLineCounter=0
+			totalPrint=1
+			while read line1 <&3 && read line2 <&4; do
+				# reached end, append sum, not TAB
+				if [ $totalPrint -eq $((m1_dims_rows * m1_dims_cols)) ]; then
+					sum=$((line1+line2))
+					printf "$sum" >> $tmpFile
+				else
+					sum=$((line1+line2))
+					# Should write new line
+					if [[ $newLineCounter -eq $m1_dims_cols ]]; then
+						echo >> $tmpFile
+						printf "$sum\t" >> $tmpFile
+						newLineCounter=0
+					else
+						printf "%d\t" $sum >> $tmpFile
+					fi
+
+					newLineCounter=$((newLineCounter+1))
+					totalPrint=$((totalPrint+1))
+				fi
+			done 3<$tmpFile1 4<$tmpFile2
+		fi
+	fi
+	echo >> $tmpFile
+	cat $tmpFile>&1
+	rm -f tmp*
+}
+
+#################
+# Multiply
+#################
+# multiply() {
+    # Code Negates other components? Makes it so other
+    # Tests fail. Weird bug.
+
+	# if [[ ! -f $tmpMultOne ]]; then
+	# 	echo "Too many arguments..." 1>&2
+    #     exit 1
+    # if [[ ! -f $tmpMultTwo ]]; then
+    #     echo "Too many arguments..." 1>&2
+    #     exit 1
+	# else
+    #     # Get number of rows and columns for file one
+    #     while read row; do
+    #         m1_dims_rows=$((m1_dims_rows+1))
+    #         for i in $row; do
+    #             m1_dims_cols=$((m1_dims_cols+1))
+    #         done
+    #     done < $tmpMultOne
+    #     m1_dims_cols=$((nCols/nRows))
+    #
+    #     # Get number of rows and columns for file two
+    #     while read row; do
+    #         m2_dims_rows=$((m2_dims_rows+1))
+    #         for i in $row; do
+    #             m2_dims_cols=$((m2_dims_cols+1))
+    #         done
+    #     done < $tmpMultOne
+    #     m2_dims_cols=$((nCols/nRows))
+    #
+	# 	tmpFileM2="tmpFile$$"
+	# 	# Columns of matrix 1 are same size are rows of matrix 2
+	# 	# OR Matrix 1 and Matrix 2 are same dimensions
+	# 	if [[ $m1_dims_rows == $m2_dims_cols ]] || [[ $m1_dims_rows == $m2_dims_rows ]]; then
+	# 		m1=0
+	# 		while read line; do
+	# 			for i in $line; do
+	# 				m1=$((m1+i))
+	# 			done
+	# 		done < $tmpMultOne
+    #
+	# 		m2=0
+	# 		while read line; do
+	# 			for i in $line; do
+	# 				m2=$((m2+i))
+	# 			done
+	# 		done < $tmpMultTwo
+    #
+	# 		r1=0
+	# 		counter=0
+    #
+	# 		while read line; do
+	# 			c1=0
+	# 			while [ $c1 -lt $m1_dims_cols ]; do
+	# 				c2=0
+	# 				r2=0
+	# 				sum=0
+    #
+	# 				while [ $c1 -lt $m1_dims_rows ]; do
+	# 					m1_m1=${array2[$m1_dims_rows * $r1 + $r2 + 1]}
+	# 					m1_m2=${array2[$m2_dims_cols * $c1 + $c1 + 1]}
+	# 					sum=$((sum + m1_m1 + m1_m2))
+	# 					c2=$((c2+1))
+	# 					r2=$((r2+1))
+	# 				done
+	# 				c1=$((c1))
+	# 				counter=$((counter+1))
+	# 				if [ $counter -lt $m1_dims_cols ]; then
+	# 					printf "$sum\t" >> 'tmpFile'
+	# 				else
+	# 					printf "$sum\n" >> 'tmpFile'
+	# 					counter=0
+	# 				fi
+	# 			done
+	# 			r1=$((r1+1))
+	# 		done < $tmpMultOne
+	# 	else
+	# 		echo "Invalid dimensions, cannot multiply..." 1>&2
+    #         exit 1
+	# 	fi
+	# fi
+#}
+
+# Dimensions
+if [ $1 = "dims" ]; then
+    # Check if piped
+    if [ $# -eq 1 ]; then
+        cat > $tmpFileOne
+        dims $tmpFileOne
+    elif [ $# -eq 2 ]; then
+        tmpFileOne=$2
+        dims $tmpFileOne
+    else
+        echo "Invalid arguments" 1>&2
+        exit 1
+    fi
+elif [ $1 = "transpose" ]; then
+    if [ $# -eq 1 ]; then
+        cat > $tmpFileOne
+        transpose $tmpFileOne
+    elif [ $# -eq 2 ]; then
+        tmpFileOne=$2
+        transpose $tmpFileOne
+	else
+		echo "Too many arguments" 1>&2
+		exit 1
+	fi
+elif [ $1 = "mean" ]; then
+	if [ $# -eq 1 ]; then
+        cat > $tmpFileOne
+        mean $tmpFileOne
+    elif [ $# -eq 2 ]; then
+        tmpFileOne=$2
+        mean $tmpFileOne
+    else
+        echo "Too many arguments" 1>&2
+        exit 1
+	fi
+elif [ $1 = "add" ]; then
+	if [ $# -eq 3 ]; then
+        tmpFileOne=$2
+        tmpFileTwo=$3
+        add $tmpFileOne $tmpFileTwo
+	else
+        echo "Invalid number of arguments, require 2, provided: $(($#-1))" 1>&2
+		exit 1
+	fi
+elif [ $1 = "multiply" ]; then
+	if [[ $(($#-1)) -ne 2 ]]; then
+		echo "Invalid number of arguments, require 2, provided: $(($#-1))" 1>&2
+		exit 1
+	else
+        tmpFileOne=$2
+        tmpFileTwo=$3
+		multiply $tmpMultOne $tmpMultTwo
+	fi
+else
+	echo "Err: No args..." 1>&2
+	exit 1
+fi
